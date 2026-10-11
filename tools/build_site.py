@@ -274,11 +274,83 @@ def _product_href(product: Dict[str, Any]) -> str:
 
 def _product_status_label(event: Dict[str, Any], product: Dict[str, Any]) -> str:
     label = _product_type(str(product.get("product_type", "")))
+    if product.get("supersedes"):
+        label = "Revised " + label[:1].lower() + label[1:]
     if product.get("featured"):
         return label
     if product.get("slug") == event.get("latest_product_slug"):
         return "Latest " + label[:1].lower() + label[1:]
     return label
+
+
+def _current_products(event: Dict[str, Any]) -> List[Dict[str, Any]]:
+    products = event.get("products", [])
+    superseded = {product.get("supersedes") for product in products if product.get("supersedes")}
+    return [product for product in products if product.get("slug") not in superseded]
+
+
+def _expert_review_text(product: Dict[str, Any]) -> str:
+    reviewers = (product.get("expert_review") or {}).get("reviewers", [])
+    if not reviewers:
+        return ""
+    names = ", ".join(str(name) for name in reviewers)
+    if product.get("supersedes"):
+        return f"Revised following domain-expert review by {names}."
+    return f"Domain-expert review by {names}."
+
+
+def _latest_revision(event: Dict[str, Any], product: Dict[str, Any]) -> Dict[str, Any] | None:
+    revisions = {item["supersedes"]: item for item in event.get("products", []) if item.get("supersedes")}
+    latest = None
+    slug = product["slug"]
+    seen = {slug}
+    while slug in revisions:
+        latest = revisions[slug]
+        slug = latest["slug"]
+        if slug in seen:
+            raise ValueError("Circular product revision history")
+        seen.add(slug)
+    return latest
+
+
+def _render_product_review(event: Dict[str, Any], product: Dict[str, Any]) -> str:
+    """Present editorial provenance without claiming approval of the final text."""
+    paragraphs = []
+    review_text = _expert_review_text(product)
+    if review_text:
+        note = (product.get("expert_review") or {}).get("note")
+        text = escape(review_text)
+        if note:
+            text += " " + escape(str(note))
+        paragraphs.append(f'<p class="review-note" role="note">{text}</p>')
+    latest = _latest_revision(event, product)
+    if latest:
+        href = "../" + escape(str(latest["slug"]), quote=True) + "/"
+        paragraphs.append(
+            '<p class="review-note" role="note">An updated version of this briefing is available. '
+            f'<a href="{href}">Read the revised briefing</a>.</p>'
+        )
+    if product.get("supersedes"):
+        href = "../" + escape(str(product["supersedes"]), quote=True) + "/"
+        detail = "This revision retains the original snapshot cutoff. " if _is_snapshot_product(product) else ""
+        paragraphs.append(
+            f'<p class="review-note revision-history">{detail}'
+            f'<a href="{href}">View the previous version</a>.</p>'
+        )
+    return "".join("\n        " + paragraph for paragraph in paragraphs)
+
+
+def _render_timeline_review(product: Dict[str, Any]) -> str:
+    text = _expert_review_text(product)
+    parts = []
+    if text:
+        parts.append(escape(text))
+    if product.get("supersedes"):
+        href = "products/" + escape(str(product["supersedes"]), quote=True) + "/"
+        parts.append(f'<a href="{href}">Previous version</a>')
+    if not parts:
+        return ""
+    return '\n          <p class="review-note">' + " ".join(parts) + "</p>"
 
 
 def _read_events() -> List[Dict[str, Any]]:
@@ -315,7 +387,7 @@ def _render_home_timeline(events: Iterable[Dict[str, Any]]) -> str:
         event_type = str(event.get("event_type", "APHR event"))
         date = _format_date(event.get("event_date") or event.get("sort_date"))
         timeline_date = _format_timeline_date(event.get("event_date") or event.get("sort_date"))
-        products = event.get("products", [])
+        products = _current_products(event)
         snapshot_count = sum(1 for product in products if _is_snapshot_product(product))
         temporal_count = sum(1 for product in products if _is_temporal_product(product))
         other_count = len(products) - snapshot_count - temporal_count
@@ -385,7 +457,7 @@ def _render_product_timeline_item(event: Dict[str, Any], product: Dict[str, Any]
         </div>
         <div class="timeline-body">
           <div class="timeline-kicker">{escape(tag)}</div>
-          <h3 class="timeline-title">{title}</h3>
+          <h3 class="timeline-title">{title}</h3>{_render_timeline_review(product)}
           <div class="timeline-meta">{_compact_meta_bits(*meta_bits)}</div>
           <a class="timeline-link" href="{escape(_product_href(product), quote=True)}">Open snapshot<span aria-hidden="true">&rarr;</span></a>
         </div>
@@ -414,7 +486,7 @@ def _render_temporal_feature(event: Dict[str, Any], products: Iterable[Dict[str,
         cards.append(
             f"""
         <article class="featured-product is-temporal">
-          <h3>{title}</h3>
+          <h3>{title}</h3>{_render_timeline_review(product)}
           <div class="timeline-meta">{_compact_meta_bits(*meta_bits)}</div>
           {f'<p>{summary}</p>' if summary else ''}
           <a class="timeline-link" href="{escape(_product_href(product), quote=True)}">Open temporal analysis<span aria-hidden="true">&rarr;</span></a>
@@ -492,10 +564,12 @@ def _build_product_page(event: Dict[str, Any], product: Dict[str, Any]) -> None:
         product.get("title") or manifest.get("title") or product["slug"]
     )
     product_type = _product_type(str(manifest.get("product_type", "")))
+    product_review = _render_product_review(event, product)
     page = _template(
         "product.html",
         {
             "page_title": escape(f"{product_title} · APHR"),
+            "site_css_version": "20261011-review" if product_review else "20260815-closure",
             "topbar": _render_topbar(
                 _clean_current_crumbs(
                     _home_crumbs("../../../../")
@@ -512,6 +586,7 @@ def _build_product_page(event: Dict[str, Any], product: Dict[str, Any]) -> None:
             "product_type": escape(product_type),
             "event_title": escape(str(event.get("title", manifest.get("event_title", "")))),
             "product_title": escape(product_title),
+            "product_review": product_review,
             "product_meta": _render_product_meta(event, manifest),
             "content_html": content_html,
         },
@@ -526,8 +601,9 @@ def _build_event_page(event: Dict[str, Any]) -> None:
         print(f"PRESERVE legacy event page: {event['slug']}")
         return
 
-    temporal_products = [product for product in products if _is_temporal_product(product)]
-    snapshot_products = [product for product in products if _is_snapshot_product(product)]
+    current_products = _current_products(event)
+    temporal_products = [product for product in current_products if _is_temporal_product(product)]
+    snapshot_products = [product for product in current_products if _is_snapshot_product(product)]
     product_timeline = "\n\n".join(
         _render_product_timeline_item(event, product)
         for product in sorted(snapshot_products, key=_product_sort_key, reverse=True)
@@ -544,6 +620,7 @@ def _build_event_page(event: Dict[str, Any]) -> None:
         "event.html",
         {
             "page_title": escape(str(event.get("title", event["slug"])) + " · APHR"),
+            "site_css_version": "20261011-review" if any(product.get("expert_review") or product.get("supersedes") for product in products) else "20260815-closure",
             "topbar": _render_topbar(
                 _clean_current_crumbs(
                     _home_crumbs("../../")

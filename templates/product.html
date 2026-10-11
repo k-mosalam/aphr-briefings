@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ page_title }}</title>
-  <link rel="stylesheet" href="../../../../assets/css/site.css?v=20260815-closure">
+  <link rel="stylesheet" href="../../../../assets/css/site.css?v={{ site_css_version }}">
   <link rel="stylesheet" href="../../../../assets/css/report.css?v=20260815-closure">
 </head>
 <body class="page-product">
@@ -17,7 +17,7 @@
         <h1 class="report-title">
           <span class="title-location">{{ event_title }}</span>
           <span class="title-product">{{ product_title }}</span>
-        </h1>
+        </h1>{{ product_review }}
         <div class="header-times">
           {{ product_meta }}
         </div>

@@ -30,6 +30,9 @@ def _parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--event-tag", default=None, help="Homepage tag for this event.")
     parser.add_argument("--product-title", default=None, help="Display title for this product.")
     parser.add_argument("--product-summary", default=None, help="Short product-card summary.")
+    parser.add_argument("--expert-reviewer", action="append", default=[], help="Domain expert whose feedback was incorporated; repeat for multiple reviewers.")
+    parser.add_argument("--review-note", default=None, help="Optional plain-text note about the expert-informed revision.")
+    parser.add_argument("--supersedes", default=None, help="Existing product slug revised by this product, within the same event.")
     parser.add_argument("--set-latest", action="store_true", help="Make this the latest product.")
     parser.add_argument("--build", action="store_true", help="Rebuild static pages after publishing.")
     return parser.parse_args(argv)
@@ -230,6 +233,43 @@ def _upsert_product(products: List[Dict[str, Any]], product: Dict[str, Any]) -> 
     return [item for item in products if item.get("slug") != product["slug"]] + [product]
 
 
+def _review_metadata(
+    args: argparse.Namespace, event: Dict[str, Any], manifest: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Validate explicit editorial metadata before creating publication files."""
+    metadata: Dict[str, Any] = {}
+    reviewers = [name.strip() for name in getattr(args, "expert_reviewer", [])]
+    if any(not name for name in reviewers):
+        raise ValueError("expert-reviewer must not be empty")
+    note = getattr(args, "review_note", None)
+    if note is not None and (not reviewers or not note.strip()):
+        raise ValueError("review-note requires an expert-reviewer and nonempty text")
+    if reviewers:
+        metadata["expert_review"] = {"reviewers": list(dict.fromkeys(reviewers))}
+        if note is not None:
+            metadata["expert_review"]["note"] = note.strip()
+
+    supersedes = getattr(args, "supersedes", None)
+    if supersedes is not None:
+        _validate_slug(supersedes, "supersedes")
+        if supersedes == args.product_slug:
+            raise ValueError("A product cannot supersede itself")
+        products = event.get("products", [])
+        original = next((item for item in products if item.get("slug") == supersedes), None)
+        if original is None:
+            raise ValueError("supersedes must name an existing product in this event")
+        if any(item.get("supersedes") == supersedes for item in products):
+            raise ValueError("This product already has a revision; supersede its latest revision instead")
+        if original.get("product_type") != manifest.get("product_type"):
+            raise ValueError("A revision must retain the original product type")
+        original_time = original.get("snapshot_time")
+        revision_time = _snapshot_time(manifest)
+        if _is_snapshot_product(manifest) and _sort_datetime(original_time) != _sort_datetime(revision_time):
+            raise ValueError("A revision must retain the original snapshot time")
+        metadata["supersedes"] = supersedes
+    return metadata
+
+
 def publish(args: argparse.Namespace) -> Path:
     bundle_dir = Path(args.bundle)
     source_manifest = _read_json(bundle_dir / "manifest.json")
@@ -237,6 +277,9 @@ def publish(args: argparse.Namespace) -> Path:
     event_dir, product_dir = _product_destination(
         args.event_slug, args.product_slug
     )
+    event_json_path = event_dir / "event.json"
+    event = _read_json(event_json_path) if event_json_path.exists() else {}
+    review_metadata = _review_metadata(args, event, source_manifest)
     _copy_bundle(bundle_dir, product_dir)
 
     manifest_path = product_dir / "manifest.json"
@@ -251,8 +294,6 @@ def publish(args: argparse.Namespace) -> Path:
         manifest["title"] = args.product_title
     _write_json(manifest_path, manifest)
 
-    event_json_path = event_dir / "event.json"
-    event = _read_json(event_json_path) if event_json_path.exists() else {}
     event_date = args.event_date or manifest.get("event_date") or source_manifest.get("event_date") or ""
     event_title = (
         args.event_title
@@ -289,6 +330,7 @@ def publish(args: argparse.Namespace) -> Path:
         product["snapshot_time"] = snapshot_time
     if _is_temporal_product(manifest):
         product["featured"] = True
+    product.update(review_metadata)
 
     event["products"] = _upsert_product(event.get("products", []), product)
     if _should_set_latest_snapshot(event, product, args.set_latest):

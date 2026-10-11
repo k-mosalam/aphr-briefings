@@ -117,10 +117,123 @@ class PublishProductTests(unittest.TestCase):
         (self.root / "events").mkdir(parents=True)
         self.original_root = publish_product.ROOT
         publish_product.ROOT = self.root
+        self.original_build_root = build_site.ROOT
+        build_site.ROOT = self.root
+        shutil.copytree(REPOSITORY_ROOT / "templates", self.root / "templates")
 
     def tearDown(self) -> None:
         publish_product.ROOT = self.original_root
+        build_site.ROOT = self.original_build_root
         self.temporary_directory.cleanup()
+
+    def make_bundle(self, name="bundle", **metadata) -> Path:
+        bundle = Path(self.temporary_directory.name) / name
+        bundle.mkdir()
+        (bundle / "content.html").write_text("<p>Evidence-grounded report.</p>\n", encoding="utf-8")
+        manifest = {
+            "product_type": "snapshot_briefing",
+            "event_date": "2026-10-09",
+            "generated_at": "2026-10-11T18:00:00Z",
+            "snapshot": {"snapshot_time": "2026-10-11T17:00:00Z"},
+            "counts": {"sources": 3},
+            **metadata,
+        }
+        (bundle / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        (bundle / "assets").mkdir()
+        (bundle / "assets" / "figure.svg").write_text("<svg></svg>", encoding="utf-8")
+        return bundle
+
+    def publish_bundle(self, bundle: Path, slug: str, *options: str) -> Path:
+        args = publish_product._parse_args([
+            "--bundle", str(bundle), "--event-slug", "example-event",
+            "--product-slug", slug, *options,
+        ])
+        return publish_product.publish(args)
+
+    def site_files(self) -> dict[str, bytes]:
+        return {str(path.relative_to(self.root)): path.read_bytes() for path in self.root.rglob("*") if path.is_file()}
+
+    def test_review_is_explicit_and_not_inferred_from_bundle(self) -> None:
+        bundle = self.make_bundle(expert_review={"reviewers": ["Invented reviewer"]})
+        product = self.publish_bundle(bundle, "initial", "--build")
+        event = json.loads((product.parent.parent / "event.json").read_text())
+        self.assertNotIn("expert_review", event["products"][0])
+        self.assertNotIn("domain-expert", (product / "index.html").read_text())
+        self.assertNotIn("Invented reviewer", (product / "index.html").read_text())
+
+        reviewed = self.publish_bundle(bundle, "reviewed-first-release", "--expert-reviewer", "Selim", "--build")
+        html = (reviewed / "index.html").read_text()
+        self.assertIn("Domain-expert review by Selim.", html)
+        self.assertNotIn("Revised following", html)
+
+    def test_revision_preserves_bundles_and_exposes_history_with_escaped_review(self) -> None:
+        bundle = self.make_bundle()
+        original = self.publish_bundle(bundle, "original", "--build")
+        unrelated = self.publish_bundle(bundle, "other-snapshot", "--build")
+        unrelated_page = (unrelated / "index.html").read_bytes()
+        original_bundle = {str(path.relative_to(original)): path.read_bytes() for path in original.rglob("*") if path.is_file() and path.name != "index.html"}
+        revised = self.publish_bundle(
+            bundle, "refined-v1", "--supersedes", "original",
+            "--expert-reviewer", "Selim <Expert>", "--expert-reviewer", "A & B",
+            "--review-note", '<script>alert("review")</script>', "--build",
+        )
+        event = json.loads((revised.parent.parent / "event.json").read_text())
+        self.assertEqual(len(event["products"]), 3)
+        self.assertEqual(event["latest_product_slug"], "refined-v1")
+        revision_entry = next(item for item in event["products"] if item["slug"] == "refined-v1")
+        self.assertEqual(revision_entry["expert_review"]["reviewers"], ["Selim <Expert>", "A & B"])
+        revised_html = (revised / "index.html").read_text()
+        self.assertIn("Revised following domain-expert review by Selim &lt;Expert&gt;, A &amp; B.", revised_html)
+        self.assertIn("&lt;script&gt;", revised_html)
+        self.assertNotIn('<script>alert("review")</script>', revised_html)
+        self.assertIn('href="../original/"', revised_html)
+        self.assertIn('href="../refined-v1/"', (original / "index.html").read_text())
+        event_html = (revised.parent.parent / "index.html").read_text()
+        self.assertEqual(event_html.count('class="timeline-item product-timeline-item'), 2)
+        self.assertIn('href="products/original/">Previous version', event_html)
+        self.assertIn("2 snapshots", (self.root / "index.html").read_text())
+        self.assertIn("site.css?v=20261011-review", revised_html)
+        self.assertIn("site.css?v=20261011-review", event_html)
+        self.assertEqual(unrelated_page, (unrelated / "index.html").read_bytes())
+        self.assertEqual(original_bundle, {str(path.relative_to(original)): path.read_bytes() for path in original.rglob("*") if path.is_file() and path.name != "index.html"})
+        self.assertNotIn("expert_review", json.loads((revised / "manifest.json").read_text()))
+
+        # Repeated imports cannot silently change editorial metadata or bundles.
+        before = self.site_files()
+        with self.assertRaises((ValueError, FileExistsError)):
+            self.publish_bundle(bundle, "refined-v1", "--supersedes", "original", "--expert-reviewer", "Someone else")
+        self.assertEqual(before, self.site_files())
+
+        self.publish_bundle(bundle, "refined-v2", "--supersedes", "refined-v1", "--expert-reviewer", "Selim", "--build")
+        self.assertIn('href="../refined-v2/"', (original / "index.html").read_text())
+        self.assertIn('href="../refined-v2/"', (revised / "index.html").read_text())
+
+    def test_invalid_review_metadata_creates_no_publication_files(self) -> None:
+        bundle = self.make_bundle()
+        self.publish_bundle(bundle, "original")
+        before = self.site_files()
+        cases = [
+            ("--expert-reviewer", "  "),
+            ("--review-note", "No reviewer"),
+            ("--expert-reviewer", "Selim", "--review-note", " "),
+            ("--supersedes", "missing-in-this-event"),
+            ("--supersedes", "revision"),
+            ("--supersedes", "../another-event/original"),
+        ]
+        for options in cases:
+            with self.subTest(options=options):
+                with self.assertRaises(ValueError):
+                    self.publish_bundle(bundle, "revision", *options)
+                self.assertEqual(before, self.site_files())
+        for name, metadata in [
+            ("later", {"snapshot": {"snapshot_time": "2026-10-12T17:00:00Z"}}),
+            ("different-type", {"product_type": "temporal_recon"}),
+        ]:
+            with self.subTest(name=name):
+                mismatched = self.make_bundle(name, **metadata)
+                with self.assertRaises(ValueError):
+                    self.publish_bundle(mismatched, "revision", "--supersedes", "original")
+                self.assertEqual(before, self.site_files())
 
     def test_product_destination_rejects_unsafe_slugs(self) -> None:
         for slug in ("../outside", "/tmp/outside", "Uppercase", "two--hyphens"):

@@ -643,6 +643,27 @@ textarea {
   content: "\00b7";
 }
 
+/* Editorial provenance follows the same muted, compact metadata style. */
+.review-note {
+  margin: var(--space-1) 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.timeline-body .review-note,
+.featured-product .review-note {
+  margin-top: 0;
+  font-size: 13px;
+}
+
+.review-note a {
+  color: var(--teal);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .timeline-link {
   display: inline-flex;
   width: max-content;

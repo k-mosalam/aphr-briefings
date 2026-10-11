@@ -59,6 +59,41 @@ python tools/publish_product.py \
 
 Run `python tools/publish_product.py --help` for optional display metadata.
 
+### Expert-informed revisions
+
+After incorporating a domain expert's feedback, publish the corrected bundle
+under a new product slug and link it to the existing version:
+
+```bash
+python tools/publish_product.py \
+  --bundle /path/to/revised-bundle \
+  --event-slug EVENT_SLUG \
+  --product-slug SNAPSHOT_SLUG-refined-v1 \
+  --supersedes SNAPSHOT_SLUG \
+  --expert-reviewer 'Selim' \
+  --review-note 'Expert feedback incorporated before this revised release.' \
+  --build
+```
+
+The optional reviewer and note are explicit editorial metadata, stored only
+on that product in `event.json`. Repeat `--expert-reviewer` for multiple people.
+Record only review that actually took place; the publisher never infers human
+review from a model's output. Without these options, no human-review annotation
+is shown. `--review-note` requires at least one reviewer.
+
+A revised product displays “Revised following domain-expert review by …” below
+its title. This acknowledges feedback incorporated into the revision; it does
+not imply the expert approved every word of the final text. A reviewed first
+release can omit `--supersedes` and instead displays “Domain-expert review by …”.
+
+`--supersedes` must reference an existing product of the same type in the same
+event. A snapshot revision retains its original cutoff; a later observation
+window is a new snapshot, not a revision. To revise a product again, supersede
+its latest revision. The event timeline shows the current version and links to
+its previous version, while the previous page links forward to the latest
+revision. All product entries, URLs, and imported bundle contents remain
+available; only their generated presentation pages are rebuilt.
+
 This command is useful for local development and reviewed manual imports. In
 the automated workflow, [`aphr-ops`](https://github.com/Nutlettt/aphr-ops)
 validates the bundle and invokes this publisher inside a temporary Git worktree
@@ -76,11 +111,18 @@ The usual frontend checkout has two remotes with deliberately different roles:
   should remain fetch-only;
 - `upstream/main` is the reader-facing production branch.
 
-A production release starts from a freshly fetched `upstream/main`, reuses the
-validated bundle and publication metadata, and is proposed on a new personal
-`release/*` branch through a reviewed pull request. Do not merge, cherry-pick,
-or otherwise promote staging publication history as a whole: staging may
-contain test-only products and has a different history from production.
+Unattended production uses a separate deployment checkout, configuration, and
+state managed by `aphr-ops`, with a dedicated `production` remote pointing to
+the reader-facing repository. Ops publishes the output approved by automated
+content review from the production branch's fresh tip, using a normal push
+under the accepted release policy and branch protections. Domain experts can
+review published reports and suggest later refinements; per-report human
+approval is not required. The usual development `upstream` remains fetch-only.
+
+The historical manual `release/*` pull-request route remains available for
+review-disabled runs. Do not use it to promote the original, uncorrected
+bundle of a reviewed run. Do not merge, cherry-pick, or otherwise promote
+staging publication history as a whole: staging may contain test-only products.
 
 The complete operational and production-release procedure is documented in
 the [`aphr-ops` deployment runbook](https://github.com/Nutlettt/aphr-ops/blob/main/docs/deployment-runbook.md).

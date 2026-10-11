@@ -35,7 +35,49 @@
       "summary": "Website-ready APHR snapshot briefing with 38 sources and 47/213 cited facts.",
       "manifest_path": "products/snapshot-20261011-170000z/manifest.json",
       "snapshot_time": "2026-10-11T17:00:00Z"
+    },
+    {
+      "slug": "snapshot-20261010-040000z-refined-1",
+      "title": "Snapshot briefing · Oct 10, 2026 04:00 UTC · Revised",
+      "product_type": "snapshot_briefing",
+      "generated_at": "2026-10-11T20:52:10.563535Z",
+      "counts": {
+        "facts_cited": 41,
+        "facts_total": 135,
+        "sources": 31
+      },
+      "summary": "Website-ready APHR snapshot briefing with 31 sources and 41/135 cited facts.",
+      "manifest_path": "products/snapshot-20261010-040000z-refined-1/manifest.json",
+      "snapshot_time": "2026-10-10T04:00:00Z",
+      "expert_review": {
+        "reviewers": [
+          "Selim"
+        ],
+        "note": "Expert feedback incorporated before this revised release."
+      },
+      "supersedes": "snapshot-20261010-040000z"
+    },
+    {
+      "slug": "snapshot-20261011-170000z-refined-1",
+      "title": "Snapshot briefing · Oct 11, 2026 17:00 UTC · Revised",
+      "product_type": "snapshot_briefing",
+      "generated_at": "2026-10-11T20:52:10.563535Z",
+      "counts": {
+        "facts_cited": 47,
+        "facts_total": 213,
+        "sources": 38
+      },
+      "summary": "Website-ready APHR snapshot briefing with 38 sources and 47/213 cited facts.",
+      "manifest_path": "products/snapshot-20261011-170000z-refined-1/manifest.json",
+      "snapshot_time": "2026-10-11T17:00:00Z",
+      "expert_review": {
+        "reviewers": [
+          "Selim"
+        ],
+        "note": "Expert feedback incorporated before this revised release."
+      },
+      "supersedes": "snapshot-20261011-170000z"
     }
   ],
-  "latest_product_slug": "snapshot-20261011-170000z"
+  "latest_product_slug": "snapshot-20261011-170000z-refined-1"
 }
