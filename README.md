@@ -70,29 +70,55 @@ python tools/publish_product.py \
   --event-slug EVENT_SLUG \
   --product-slug SNAPSHOT_SLUG-refined-v1 \
   --supersedes SNAPSHOT_SLUG \
-  --expert-reviewer 'Selim' \
-  --review-note 'Expert feedback incorporated before this revised release.' \
+  --expert-reviewer 'Mehmet Selim Gunay' \
+  --expert-reviewer 'Khalid M. Mosalam' \
+  --expert-reviewer-url 'Mehmet Selim Gunay=https://scholar.google.com/citations?user=wlpfjKUAAAAJ&hl=en' \
   --build
 ```
 
-The optional reviewer and note are explicit editorial metadata, stored only
-on that product in `event.json`. Repeat `--expert-reviewer` for multiple people.
+The optional reviewers and profile links are explicit editorial metadata,
+stored only on that product in `event.json`. Repeat `--expert-reviewer` for
+multiple people. Optional `--expert-reviewer-url NAME=URL` values must match a
+named reviewer and use an absolute HTTP(S) address; only supplied links appear.
 Record only review that actually took place; the publisher never infers human
 review from a model's output. Without these options, no human-review annotation
-is shown. `--review-note` requires at least one reviewer.
+is shown. `--review-note` can retain editorial context in metadata, requires at
+least one reviewer, and is not displayed as an extra paragraph in the report.
 
-A revised product displays “Revised following domain-expert review by …” below
-its title. This acknowledges feedback incorporated into the revision; it does
-not imply the expert approved every word of the final text. A reviewed first
-release can omit `--supersedes` and instead displays “Domain-expert review by …”.
+A compact “Expert reviewed” tag beside the subtitle opens the reviewer names
+on hover, keyboard focus, or click. It uses a native disclosure so the names
+remain available without JavaScript. This records domain-expert participation,
+not approval of every word of the final text. A reviewed first release can omit
+`--supersedes`.
+
+To add or replace reviewer metadata on a product already published, use the
+bounded metadata-only mode (no bundle is imported or changed):
+
+```bash
+python tools/publish_product.py \
+  --update-review \
+  --event-slug EVENT_SLUG \
+  --product-slug PRODUCT_SLUG \
+  --expert-reviewer 'Mehmet Selim Gunay' \
+  --expert-reviewer 'Khalid M. Mosalam' \
+  --expert-reviewer-url 'Mehmet Selim Gunay=https://scholar.google.com/citations?user=wlpfjKUAAAAJ&hl=en' \
+  --build
+```
+
+`--update-review` replaces only that product's `expert_review` object. It
+requires an existing product and rejects bundle imports, revision changes, and
+unrelated display options. Reviewer strings remain backward compatible; links
+are stored in the optional `expert_review.reviewer_links` map keyed by name.
 
 `--supersedes` must reference an existing product of the same type in the same
 event. A snapshot revision retains its original cutoff; a later observation
 window is a new snapshot, not a revision. To revise a product again, supersede
-its latest revision. The event timeline shows the current version and links to
-its previous version, while the previous page links forward to the latest
-revision. All product entries, URLs, and imported bundle contents remain
-available; only their generated presentation pages are rebuilt.
+its latest revision. The event timeline shows one current version for each
+snapshot, retaining both early and later observation windows. Historical URLs
+redirect to the latest revision of that same snapshot using a static redirect,
+canonical link, and fallback link. Revision history and previous-version links
+are kept out of the reader interface. All product entries and imported bundle
+contents remain intact; only generated presentation pages are rebuilt.
 
 This command is useful for local development and reviewed manual imports. In
 the automated workflow, [`aphr-ops`](https://github.com/Nutlettt/aphr-ops)

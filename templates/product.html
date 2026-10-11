@@ -14,10 +14,7 @@
   <div class="site-shell">
     <main class="site-main" id="main-content">
       <header class="report-header" id="product-overview">
-        <h1 class="report-title">
-          <span class="title-location">{{ event_title }}</span>
-          <span class="title-product">{{ product_title }}</span>
-        </h1>{{ product_review }}
+        {{ product_heading }}
         <div class="header-times">
           {{ product_meta }}
         </div>
@@ -34,6 +31,6 @@
   </div>
   <script src="../../../../assets/js/site.js?v=20260815-closure"></script>
   <script src="../../../../assets/js/report.js?v=20260815-closure"></script>
-  <script src="../../../../assets/js/citations.js?v=20260815-closure"></script>
+  <script src="../../../../assets/js/citations.js?v=20260815-closure"></script>{{ review_script }}
 </body>
 </html>

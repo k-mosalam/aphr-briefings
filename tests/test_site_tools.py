@@ -158,15 +158,19 @@ class PublishProductTests(unittest.TestCase):
         product = self.publish_bundle(bundle, "initial", "--build")
         event = json.loads((product.parent.parent / "event.json").read_text())
         self.assertNotIn("expert_review", event["products"][0])
-        self.assertNotIn("domain-expert", (product / "index.html").read_text())
+        self.assertNotIn("Expert reviewed", (product / "index.html").read_text())
+        self.assertNotIn("review.js", (product / "index.html").read_text())
         self.assertNotIn("Invented reviewer", (product / "index.html").read_text())
 
         reviewed = self.publish_bundle(bundle, "reviewed-first-release", "--expert-reviewer", "Selim", "--build")
         html = (reviewed / "index.html").read_text()
-        self.assertIn("Domain-expert review by Selim.", html)
+        self.assertIn('data-expert-review><summary', html)
+        self.assertIn("Expert reviewed</summary>", html)
+        self.assertIn("<li>Selim</li>", html)
+        self.assertIn("review.js", html)
         self.assertNotIn("Revised following", html)
 
-    def test_revision_preserves_bundles_and_exposes_history_with_escaped_review(self) -> None:
+    def test_revision_preserves_bundles_and_redirects_old_pages(self) -> None:
         bundle = self.make_bundle()
         original = self.publish_bundle(bundle, "original", "--build")
         unrelated = self.publish_bundle(bundle, "other-snapshot", "--build")
@@ -174,7 +178,9 @@ class PublishProductTests(unittest.TestCase):
         original_bundle = {str(path.relative_to(original)): path.read_bytes() for path in original.rglob("*") if path.is_file() and path.name != "index.html"}
         revised = self.publish_bundle(
             bundle, "refined-v1", "--supersedes", "original",
+            "--product-title", "Snapshot briefing · Oct 11, 2026 17:00 UTC · Revised",
             "--expert-reviewer", "Selim <Expert>", "--expert-reviewer", "A & B",
+            "--expert-reviewer-url", "Selim <Expert>=https://example.org/profile?a=1&b=2",
             "--review-note", '<script>alert("review")</script>', "--build",
         )
         event = json.loads((revised.parent.parent / "event.json").read_text())
@@ -183,17 +189,25 @@ class PublishProductTests(unittest.TestCase):
         revision_entry = next(item for item in event["products"] if item["slug"] == "refined-v1")
         self.assertEqual(revision_entry["expert_review"]["reviewers"], ["Selim <Expert>", "A & B"])
         revised_html = (revised / "index.html").read_text()
-        self.assertIn("Revised following domain-expert review by Selim &lt;Expert&gt;, A &amp; B.", revised_html)
-        self.assertIn("&lt;script&gt;", revised_html)
+        self.assertIn("Selim &lt;Expert&gt;</a>", revised_html)
+        self.assertIn("<li>A &amp; B</li>", revised_html)
+        self.assertIn('href="https://example.org/profile?a=1&amp;b=2"', revised_html)
+        self.assertNotIn('role="tooltip"', revised_html)
+        self.assertNotIn("· Revised", revised_html)
         self.assertNotIn('<script>alert("review")</script>', revised_html)
-        self.assertIn('href="../original/"', revised_html)
-        self.assertIn('href="../refined-v1/"', (original / "index.html").read_text())
+        self.assertNotIn('href="../original/"', revised_html)
+        original_html = (original / "index.html").read_text()
+        self.assertIn('rel="canonical" href="../refined-v1/"', original_html)
+        self.assertIn('http-equiv="refresh" content="0; url=../refined-v1/"', original_html)
+        self.assertIn('href="../refined-v1/">Open briefing', original_html)
         event_html = (revised.parent.parent / "index.html").read_text()
         self.assertEqual(event_html.count('class="timeline-item product-timeline-item'), 2)
-        self.assertIn('href="products/original/">Previous version', event_html)
+        self.assertNotIn('href="products/original/"', event_html)
+        self.assertNotIn("Previous version", event_html)
+        self.assertNotIn("Revised", event_html)
         self.assertIn("2 snapshots", (self.root / "index.html").read_text())
-        self.assertIn("site.css?v=20261011-review", revised_html)
-        self.assertIn("site.css?v=20261011-review", event_html)
+        self.assertIn("site.css?v=20261011-review2", revised_html)
+        self.assertIn("site.css?v=20261011-review2", event_html)
         self.assertEqual(unrelated_page, (unrelated / "index.html").read_bytes())
         self.assertEqual(original_bundle, {str(path.relative_to(original)): path.read_bytes() for path in original.rglob("*") if path.is_file() and path.name != "index.html"})
         self.assertNotIn("expert_review", json.loads((revised / "manifest.json").read_text()))
@@ -216,6 +230,11 @@ class PublishProductTests(unittest.TestCase):
             ("--expert-reviewer", "  "),
             ("--review-note", "No reviewer"),
             ("--expert-reviewer", "Selim", "--review-note", " "),
+            ("--expert-reviewer", "Selim", "--expert-reviewer-url", "Selim=javascript:alert(1)"),
+            ("--expert-reviewer", "Selim", "--expert-reviewer-url", "Other=https://example.org"),
+            ("--expert-reviewer", "Selim", "--expert-reviewer-url", "Selim=//example.org"),
+            ("--expert-reviewer", "Selim", "--expert-reviewer-url", "Selim=https://exam ple.org"),
+            ("--expert-reviewer", "Selim", "--expert-reviewer-url", "Selim=https://[invalid"),
             ("--supersedes", "missing-in-this-event"),
             ("--supersedes", "revision"),
             ("--supersedes", "../another-event/original"),
@@ -234,6 +253,60 @@ class PublishProductTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.publish_bundle(mismatched, "revision", "--supersedes", "original")
                 self.assertEqual(before, self.site_files())
+
+    def test_update_review_changes_only_editorial_metadata(self) -> None:
+        bundle = self.make_bundle()
+        product_dir = self.publish_bundle(bundle, "initial", "--build")
+        before = self.site_files()
+        event_path = product_dir.parent.parent / "event.json"
+        original_event = json.loads(event_path.read_text())
+        args = publish_product._parse_args([
+            "--update-review", "--event-slug", "example-event", "--product-slug", "initial",
+            "--expert-reviewer", "Mehmet Selim Gunay", "--expert-reviewer", "Khalid M. Mosalam",
+            "--expert-reviewer-url", "Mehmet Selim Gunay=https://scholar.google.com/citations?user=wlpfjKUAAAAJ&hl=en",
+        ])
+        publish_product.publish(args)
+        changed = [name for name, data in before.items() if self.site_files()[name] != data]
+        self.assertEqual(changed, ["events/example-event/event.json"])
+        updated_event = json.loads(event_path.read_text())
+        review = updated_event["products"][0].pop("expert_review")
+        self.assertEqual(review["reviewers"], ["Mehmet Selim Gunay", "Khalid M. Mosalam"])
+        self.assertEqual(set(review["reviewer_links"]), {"Mehmet Selim Gunay"})
+        self.assertEqual(updated_event, original_event)
+        before_invalid = self.site_files()
+        args.expert_reviewer_url = ["Mehmet Selim Gunay=data:text/html,unsafe"]
+        with self.assertRaises(ValueError):
+            publish_product.publish(args)
+        self.assertEqual(before_invalid, self.site_files())
+
+    def test_update_review_rejects_unrelated_changes(self) -> None:
+        bundle = self.make_bundle()
+        self.publish_bundle(bundle, "initial")
+        before = self.site_files()
+        for options in [
+            ["--bundle", str(bundle)], ["--supersedes", "initial"],
+            ["--product-title", "Changed"], ["--event-type", "Earthquake"],
+            ["--set-latest"], ["--event-date", "2026-01-01"],
+        ]:
+            with self.subTest(options=options):
+                args = publish_product._parse_args([
+                    "--update-review", "--event-slug", "example-event", "--product-slug", "initial",
+                    "--expert-reviewer", "Selim", *options,
+                ])
+                with self.assertRaises(ValueError):
+                    publish_product.publish(args)
+                self.assertEqual(before, self.site_files())
+
+    def test_bad_hand_edited_profile_url_is_not_rendered_as_link(self) -> None:
+        html = build_site._render_expert_review({
+            "slug": "snapshot", "expert_review": {
+                "reviewers": ["Selim <Expert>"],
+                "reviewer_links": {"Selim <Expert>": "javascript:alert(1)"},
+            },
+        })
+        self.assertIn("<li>Selim &lt;Expert&gt;</li>", html)
+        self.assertIn("<details", html)
+        self.assertNotIn("href=", html)
 
     def test_product_destination_rejects_unsafe_slugs(self) -> None:
         for slug in ("../outside", "/tmp/outside", "Uppercase", "two--hyphens"):

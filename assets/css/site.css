@@ -643,25 +643,104 @@ textarea {
   content: "\00b7";
 }
 
-/* Editorial provenance follows the same muted, compact metadata style. */
-.review-note {
-  margin: var(--space-1) 0 0;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
+/* A native disclosure keeps expert attribution compact and accessible. */
+.product-subtitle-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
 }
 
-.timeline-body .review-note,
-.featured-product .review-note {
-  margin-top: 0;
+.product-subtitle-row .title-product {
+  margin: 0;
+}
+
+.expert-review {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 auto;
+  max-width: 100%;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.expert-review-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border: 1px solid var(--accent-border-muted);
+  border-radius: 2em;
+  background: var(--accent-bg-subtle);
+  color: var(--accent-fg);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.expert-review-badge::-webkit-details-marker {
+  display: none;
+}
+
+.expert-review-badge:hover,
+.expert-review[open] .expert-review-badge {
+  border-color: var(--accent-fg);
+}
+
+.expert-review-badge:focus-visible {
+  outline: 2px solid var(--accent-fg);
+  outline-offset: 3px;
+}
+
+.expert-review-panel {
+  position: absolute;
+  z-index: 30;
+  top: 100%;
+  left: var(--review-panel-left, 0px);
+  width: min(250px, calc(100vw - 32px));
+  padding-top: 8px;
+}
+
+.expert-review-popover {
+  padding: 12px 14px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--canvas-default);
+  color: var(--fg-default);
+  box-shadow: 0 4px 16px rgb(31 35 40 / 12%);
+}
+
+.expert-review-popover p {
+  margin: 0 0 6px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.expert-review-popover ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   font-size: 13px;
 }
 
-.review-note a {
-  color: var(--teal);
+.expert-review-popover a {
+  color: var(--accent-fg);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+@media print {
+  .expert-review-panel {
+    display: none;
+  }
 }
 
 .timeline-link {

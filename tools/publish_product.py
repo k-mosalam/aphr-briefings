@@ -11,7 +11,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List
 
-from build_site import build_site
+from build_site import build_site, reviewer_url
 
 ROOT = Path(__file__).resolve().parents[1]
 _SLUG_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
@@ -19,23 +19,28 @@ _SLUG_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 
 def _parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--bundle", required=True, help="Directory with content.html and manifest.json.")
+    parser.add_argument("--bundle", help="Directory with content.html and manifest.json; required unless --update-review is used.")
     parser.add_argument("--event-slug", required=True, help="Website event slug.")
     parser.add_argument("--product-slug", required=True, help="Website product slug.")
     parser.add_argument("--event-title", default=None, help="Display title for the event.")
     parser.add_argument("--event-date", default=None, help="Display/sort date for the event.")
-    parser.add_argument("--event-type", default="Earthquake", help="Event type label.")
+    parser.add_argument("--event-type", default=None, help="Event type label (default: Earthquake).")
     parser.add_argument("--event-meta", default=None, help="Short metadata line for homepage card.")
     parser.add_argument("--event-description", default=None, help="Event page and homepage description.")
     parser.add_argument("--event-tag", default=None, help="Homepage tag for this event.")
     parser.add_argument("--product-title", default=None, help="Display title for this product.")
     parser.add_argument("--product-summary", default=None, help="Short product-card summary.")
     parser.add_argument("--expert-reviewer", action="append", default=[], help="Domain expert whose feedback was incorporated; repeat for multiple reviewers.")
+    parser.add_argument("--expert-reviewer-url", action="append", default=[], metavar="NAME=URL", help="Optional HTTP(S) profile for a named reviewer; repeat for multiple reviewers.")
     parser.add_argument("--review-note", default=None, help="Optional plain-text note about the expert-informed revision.")
+    parser.add_argument("--update-review", action="store_true", help="Replace expert-review metadata on an existing product without importing a bundle.")
     parser.add_argument("--supersedes", default=None, help="Existing product slug revised by this product, within the same event.")
     parser.add_argument("--set-latest", action="store_true", help="Make this the latest product.")
     parser.add_argument("--build", action="store_true", help="Rebuild static pages after publishing.")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if not args.update_review and not args.bundle:
+        parser.error("--bundle is required unless --update-review is used")
+    return args
 
 
 def _read_json(path: Path) -> Dict[str, Any]:
@@ -248,6 +253,17 @@ def _review_metadata(
         metadata["expert_review"] = {"reviewers": list(dict.fromkeys(reviewers))}
         if note is not None:
             metadata["expert_review"]["note"] = note.strip()
+    links = {}
+    for item in getattr(args, "expert_reviewer_url", []):
+        name, separator, url = item.partition("=")
+        name = name.strip()
+        if not separator or name not in reviewers or not reviewer_url(url):
+            raise ValueError("expert-reviewer-url must be NAME=HTTP(S)_URL for an explicitly named reviewer")
+        if name in links and links[name] != url:
+            raise ValueError("A reviewer must have only one profile URL")
+        links[name] = url
+    if links:
+        metadata["expert_review"]["reviewer_links"] = links
 
     supersedes = getattr(args, "supersedes", None)
     if supersedes is not None:
@@ -270,7 +286,35 @@ def _review_metadata(
     return metadata
 
 
+def _update_review(args: argparse.Namespace) -> Path:
+    forbidden = (
+        "bundle", "supersedes", "event_title", "event_date", "event_type",
+        "event_meta", "event_description", "event_tag", "product_title",
+        "product_summary", "set_latest",
+    )
+    if any(getattr(args, name, None) is not None and getattr(args, name) is not False for name in forbidden):
+        raise ValueError("update-review accepts only event/product slugs, reviewer metadata, and --build")
+    event_dir, product_dir = _product_destination(args.event_slug, args.product_slug)
+    event_path = event_dir / "event.json"
+    if not event_path.exists() or not product_dir.is_dir():
+        raise ValueError("update-review requires an existing product")
+    event = _read_json(event_path)
+    product = next((item for item in event.get("products", []) if item.get("slug") == args.product_slug), None)
+    if product is None:
+        raise ValueError("update-review requires an existing product in this event")
+    metadata = _review_metadata(args, event, {})
+    if "expert_review" not in metadata:
+        raise ValueError("update-review requires at least one expert-reviewer")
+    product["expert_review"] = metadata["expert_review"]
+    _write_json(event_path, event)
+    if args.build:
+        build_site()
+    return product_dir
+
+
 def publish(args: argparse.Namespace) -> Path:
+    if getattr(args, "update_review", False):
+        return _update_review(args)
     bundle_dir = Path(args.bundle)
     source_manifest = _read_json(bundle_dir / "manifest.json")
 
@@ -306,7 +350,7 @@ def publish(args: argparse.Namespace) -> Path:
             "schema_version": "1.0",
             "slug": args.event_slug,
             "title": event_title,
-            "event_type": args.event_type,
+            "event_type": args.event_type or "Earthquake",
             "event_date": event_date,
             "tag": args.event_tag or event.get("tag") or _format_product_type(manifest.get("product_type", "")),
             "meta": args.event_meta or event.get("meta") or _default_event_meta(manifest, event_date),
@@ -347,7 +391,7 @@ def main(argv=None) -> int:
     args = _parse_args(argv)
     product_dir = publish(args)
     print("=" * 72)
-    print("PRODUCT PUBLISHED")
+    print("REVIEW METADATA UPDATED" if args.update_review else "PRODUCT PUBLISHED")
     print(f"  product: {product_dir}")
     print(f"  event:   {ROOT / 'events' / args.event_slug / 'event.json'}")
     print("=" * 72)

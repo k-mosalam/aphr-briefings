@@ -10,6 +10,7 @@ from html import escape
 from pathlib import Path
 import re
 from typing import Any, Dict, Iterable, List
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 _TEMPLATE_TOKEN = re.compile(r"{{\s*([a-z][a-z0-9_]*)\s*}}")
@@ -274,8 +275,6 @@ def _product_href(product: Dict[str, Any]) -> str:
 
 def _product_status_label(event: Dict[str, Any], product: Dict[str, Any]) -> str:
     label = _product_type(str(product.get("product_type", "")))
-    if product.get("supersedes"):
-        label = "Revised " + label[:1].lower() + label[1:]
     if product.get("featured"):
         return label
     if product.get("slug") == event.get("latest_product_slug"):
@@ -289,14 +288,24 @@ def _current_products(event: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [product for product in products if product.get("slug") not in superseded]
 
 
-def _expert_review_text(product: Dict[str, Any]) -> str:
-    reviewers = (product.get("expert_review") or {}).get("reviewers", [])
-    if not reviewers:
-        return ""
-    names = ", ".join(str(name) for name in reviewers)
+def _display_product_title(product: Dict[str, Any], fallback: str = "") -> str:
+    title = str(product.get("title") or fallback or product["slug"])
     if product.get("supersedes"):
-        return f"Revised following domain-expert review by {names}."
-    return f"Domain-expert review by {names}."
+        title = re.sub(r"\s*·\s*Revised\s*$", "", title, flags=re.IGNORECASE)
+    return title
+
+
+def reviewer_url(value: Any) -> str | None:
+    """Allow only absolute web profile links, including for hand-edited metadata."""
+    if not isinstance(value, str) or any(character.isspace() for character in value):
+        return None
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme.lower() not in ("https", "http") or not parsed.hostname:
+            return None
+    except ValueError:
+        return None
+    return value
 
 
 def _latest_revision(event: Dict[str, Any], product: Dict[str, Any]) -> Dict[str, Any] | None:
@@ -313,44 +322,62 @@ def _latest_revision(event: Dict[str, Any], product: Dict[str, Any]) -> Dict[str
     return latest
 
 
-def _render_product_review(event: Dict[str, Any], product: Dict[str, Any]) -> str:
-    """Present editorial provenance without claiming approval of the final text."""
-    paragraphs = []
-    review_text = _expert_review_text(product)
-    if review_text:
-        note = (product.get("expert_review") or {}).get("note")
-        text = escape(review_text)
-        if note:
-            text += " " + escape(str(note))
-        paragraphs.append(f'<p class="review-note" role="note">{text}</p>')
-    latest = _latest_revision(event, product)
-    if latest:
-        href = "../" + escape(str(latest["slug"]), quote=True) + "/"
-        paragraphs.append(
-            '<p class="review-note" role="note">An updated version of this briefing is available. '
-            f'<a href="{href}">Read the revised briefing</a>.</p>'
-        )
-    if product.get("supersedes"):
-        href = "../" + escape(str(product["supersedes"]), quote=True) + "/"
-        detail = "This revision retains the original snapshot cutoff. " if _is_snapshot_product(product) else ""
-        paragraphs.append(
-            f'<p class="review-note revision-history">{detail}'
-            f'<a href="{href}">View the previous version</a>.</p>'
-        )
-    return "".join("\n        " + paragraph for paragraph in paragraphs)
-
-
-def _render_timeline_review(product: Dict[str, Any]) -> str:
-    text = _expert_review_text(product)
-    parts = []
-    if text:
-        parts.append(escape(text))
-    if product.get("supersedes"):
-        href = "products/" + escape(str(product["supersedes"]), quote=True) + "/"
-        parts.append(f'<a href="{href}">Previous version</a>')
-    if not parts:
+def _render_expert_review(product: Dict[str, Any]) -> str:
+    review = product.get("expert_review") or {}
+    reviewers = review.get("reviewers", [])
+    if not reviewers:
         return ""
-    return '\n          <p class="review-note">' + " ".join(parts) + "</p>"
+    links = review.get("reviewer_links") or {}
+    names = []
+    for reviewer in reviewers:
+        name = escape(str(reviewer))
+        url = reviewer_url(links.get(reviewer))
+        if url:
+            name = f'<a href="{escape(url, quote=True)}" target="_blank" rel="noopener noreferrer">{name}</a>'
+        names.append(f"<li>{name}</li>")
+    panel_id = "expert-review-" + escape(str(product["slug"]), quote=True)
+    return (
+        '<details class="expert-review" data-expert-review>'
+        f'<summary class="expert-review-badge" aria-controls="{panel_id}">Expert reviewed</summary>'
+        f'<div class="expert-review-panel" id="{panel_id}" role="group" aria-label="Domain expert reviewers">'
+        '<div class="expert-review-popover"><p>Reviewed by</p><ul>'
+        + "".join(names) + '</ul></div></div></details>'
+    )
+
+
+def _render_product_heading(event_title: str, product_title: str, badge: str) -> str:
+    if not badge:
+        return (
+            '<h1 class="report-title">\n'
+            f'          <span class="title-location">{escape(event_title)}</span>\n'
+            f'          <span class="title-product">{escape(product_title)}</span>\n'
+            '        </h1>'
+        )
+    return (
+        f'<h1 class="report-title"><span class="title-location">{escape(event_title)}</span></h1>\n'
+        '        <div class="product-subtitle-row">'
+        f'<p class="title-product">{escape(product_title)}</p>{badge}</div>'
+    )
+
+
+def _review_script(asset_prefix: str) -> str:
+    return f'\n  <script src="{asset_prefix}assets/js/review.js?v=20261011-review2"></script>'
+
+
+def _render_product_redirect(product: Dict[str, Any], latest: Dict[str, Any]) -> str:
+    href = "../" + escape(str(latest["slug"]), quote=True) + "/"
+    title = escape(_display_product_title(product))
+    return (
+        '<!DOCTYPE html>\n<html lang="en">\n<head>\n'
+        '  <meta charset="utf-8">\n'
+        '  <meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        f'  <title>{title} · APHR</title>\n'
+        f'  <link rel="canonical" href="{href}">\n'
+        f'  <meta http-equiv="refresh" content="0; url={href}">\n'
+        '</head>\n<body>\n'
+        f'  <p><a href="{href}">Open briefing</a></p>\n'
+        '</body>\n</html>\n'
+    )
 
 
 def _read_events() -> List[Dict[str, Any]]:
@@ -433,7 +460,11 @@ def _render_home_timeline(events: Iterable[Dict[str, Any]]) -> str:
 
 def _render_product_timeline_item(event: Dict[str, Any], product: Dict[str, Any]) -> str:
     slug = str(product["slug"])
-    title = escape(str(product.get("title", slug)))
+    title = escape(_display_product_title(product))
+    badge = _render_expert_review(product)
+    heading = f'<h3 class="timeline-title">{title}</h3>'
+    if badge:
+        heading = f'<div class="product-subtitle-row">{heading}{badge}</div>'
     snapshot_time = product.get("snapshot_time")
     generated_at = product.get("generated_at")
     stats = _product_counts(product)
@@ -457,7 +488,7 @@ def _render_product_timeline_item(event: Dict[str, Any], product: Dict[str, Any]
         </div>
         <div class="timeline-body">
           <div class="timeline-kicker">{escape(tag)}</div>
-          <h3 class="timeline-title">{title}</h3>{_render_timeline_review(product)}
+          {heading}
           <div class="timeline-meta">{_compact_meta_bits(*meta_bits)}</div>
           <a class="timeline-link" href="{escape(_product_href(product), quote=True)}">Open snapshot<span aria-hidden="true">&rarr;</span></a>
         </div>
@@ -469,7 +500,11 @@ def _render_temporal_feature(event: Dict[str, Any], products: Iterable[Dict[str,
     cards = []
     for product in sorted(products, key=_product_sort_key, reverse=True):
         slug = str(product["slug"])
-        title = escape(str(product.get("title", slug)))
+        title = escape(_display_product_title(product))
+        badge = _render_expert_review(product)
+        heading = f'<h3>{title}</h3>'
+        if badge:
+            heading = f'<div class="product-subtitle-row">{heading}{badge}</div>'
         generated_at = product.get("generated_at")
         stats = _product_counts(product)
         meta_bits = []
@@ -486,7 +521,7 @@ def _render_temporal_feature(event: Dict[str, Any], products: Iterable[Dict[str,
         cards.append(
             f"""
         <article class="featured-product is-temporal">
-          <h3>{title}</h3>{_render_timeline_review(product)}
+          {heading}
           <div class="timeline-meta">{_compact_meta_bits(*meta_bits)}</div>
           {f'<p>{summary}</p>' if summary else ''}
           <a class="timeline-link" href="{escape(_product_href(product), quote=True)}">Open temporal analysis<span aria-hidden="true">&rarr;</span></a>
@@ -552,6 +587,11 @@ def _build_product_page(event: Dict[str, Any], product: Dict[str, Any]) -> None:
         return
 
     product_dir = Path(event["_dir"]) / "products" / str(product["slug"])
+    latest = _latest_revision(event, product)
+    if latest:
+        _write(product_dir / "index.html", _render_product_redirect(product, latest))
+        print(f"BUILT redirect {product_dir / 'index.html'}")
+        return
     content_path = product_dir / "content.html"
     manifest_path = product_dir / "manifest.json"
     if not content_path.exists() or not manifest_path.exists():
@@ -560,16 +600,14 @@ def _build_product_page(event: Dict[str, Any], product: Dict[str, Any]) -> None:
 
     content_html = content_path.read_text(encoding="utf-8")
     manifest = _read_json(manifest_path)
-    product_title = str(
-        product.get("title") or manifest.get("title") or product["slug"]
-    )
+    product_title = _display_product_title(product, str(manifest.get("title") or ""))
     product_type = _product_type(str(manifest.get("product_type", "")))
-    product_review = _render_product_review(event, product)
+    badge = _render_expert_review(product)
     page = _template(
         "product.html",
         {
             "page_title": escape(f"{product_title} · APHR"),
-            "site_css_version": "20261011-review" if product_review else "20260815-closure",
+            "site_css_version": "20261011-review2" if badge else "20260815-closure",
             "topbar": _render_topbar(
                 _clean_current_crumbs(
                     _home_crumbs("../../../../")
@@ -586,7 +624,8 @@ def _build_product_page(event: Dict[str, Any], product: Dict[str, Any]) -> None:
             "product_type": escape(product_type),
             "event_title": escape(str(event.get("title", manifest.get("event_title", "")))),
             "product_title": escape(product_title),
-            "product_review": product_review,
+            "product_heading": _render_product_heading(str(event.get("title", manifest.get("event_title", ""))), product_title, badge),
+            "review_script": _review_script("../../../../") if badge else "",
             "product_meta": _render_product_meta(event, manifest),
             "content_html": content_html,
         },
@@ -620,7 +659,8 @@ def _build_event_page(event: Dict[str, Any]) -> None:
         "event.html",
         {
             "page_title": escape(str(event.get("title", event["slug"])) + " · APHR"),
-            "site_css_version": "20261011-review" if any(product.get("expert_review") or product.get("supersedes") for product in products) else "20260815-closure",
+            "site_css_version": "20261011-review2" if any(product.get("expert_review") for product in current_products) else "20260815-closure",
+            "review_script": _review_script("../../") if any(product.get("expert_review") for product in current_products) else "",
             "topbar": _render_topbar(
                 _clean_current_crumbs(
                     _home_crumbs("../../")
