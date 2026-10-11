@@ -119,7 +119,49 @@
         ]
       },
       "supersedes": "snapshot-20261011-170000z-refined-1"
+    },
+    {
+      "slug": "snapshot-20261010-040000z-refined-3",
+      "title": "Snapshot briefing · Oct 10, 2026 04:00 UTC",
+      "product_type": "snapshot_briefing",
+      "generated_at": "2026-10-11T21:54:16.583020Z",
+      "counts": {
+        "facts_cited": 43,
+        "facts_total": 137,
+        "sources": 32
+      },
+      "summary": "Website-ready APHR snapshot briefing with 32 sources and 43/137 cited facts.",
+      "manifest_path": "products/snapshot-20261010-040000z-refined-3/manifest.json",
+      "snapshot_time": "2026-10-10T04:00:00Z",
+      "expert_review": {
+        "reviewers": [
+          "Mehmet Selim Gunay",
+          "Khalid M. Mosalam"
+        ]
+      },
+      "supersedes": "snapshot-20261010-040000z-refined-2"
+    },
+    {
+      "slug": "snapshot-20261011-170000z-refined-3",
+      "title": "Snapshot briefing · Oct 11, 2026 17:00 UTC",
+      "product_type": "snapshot_briefing",
+      "generated_at": "2026-10-11T21:54:16.583020Z",
+      "counts": {
+        "facts_cited": 49,
+        "facts_total": 215,
+        "sources": 38
+      },
+      "summary": "Website-ready APHR snapshot briefing with 38 sources and 49/215 cited facts.",
+      "manifest_path": "products/snapshot-20261011-170000z-refined-3/manifest.json",
+      "snapshot_time": "2026-10-11T17:00:00Z",
+      "expert_review": {
+        "reviewers": [
+          "Mehmet Selim Gunay",
+          "Khalid M. Mosalam"
+        ]
+      },
+      "supersedes": "snapshot-20261011-170000z-refined-2"
     }
   ],
-  "latest_product_slug": "snapshot-20261011-170000z-refined-2"
+  "latest_product_slug": "snapshot-20261011-170000z-refined-3"
 }
