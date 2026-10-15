@@ -161,7 +161,21 @@
         ]
       },
       "supersedes": "snapshot-20261011-170000z-refined-2"
+    },
+    {
+      "slug": "snapshot-20261015-160000z",
+      "title": "Snapshot briefing · Oct 15, 2026 16:00 UTC",
+      "product_type": "snapshot_briefing",
+      "generated_at": "2026-10-15T17:03:46.727320Z",
+      "counts": {
+        "facts_cited": 28,
+        "facts_total": 136,
+        "sources": 15
+      },
+      "summary": "Website-ready APHR snapshot briefing with 15 sources and 28/136 cited facts.",
+      "manifest_path": "products/snapshot-20261015-160000z/manifest.json",
+      "snapshot_time": "2026-10-15T16:00:00Z"
     }
   ],
-  "latest_product_slug": "snapshot-20261011-170000z-refined-3"
+  "latest_product_slug": "snapshot-20261015-160000z"
 }
